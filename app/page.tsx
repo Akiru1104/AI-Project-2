@@ -28,6 +28,7 @@ export default function Home() {
     const fetchArticles = async () => {
       try {
         const response = await fetch("/api/articles");
+        if (!response.ok) return;
         const data = await response.json();
         setArticles(data);
       } catch (error) {
@@ -91,7 +92,7 @@ export default function Home() {
       });
 
       if (saveResponse.ok) {
-        const result = await saveResponse.json();
+        await saveResponse.json();
         toast.success("Article saved successfully!");
 
         // Refresh articles list
@@ -112,36 +113,16 @@ export default function Home() {
     }
   };
 
-  const handleGenerateQuiz = async () => {
-    if (!summary) return;
-    setLoading(true);
-
-    try {
-      // Save article and quizzes to database
-      const saveResponse = await fetch("/api/articles", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title:
-            title ||
-            content.substring(0, 50) + (content.length > 50 ? "..." : ""),
-          content,
-          summary,
-          quizzes: [], // Will be generated on the quiz page
-        }),
-      });
-
-      if (saveResponse.ok) {
-        const result = await saveResponse.json();
-        router.push(`/quiz/${result.id}`);
-      }
-    } catch (error) {
-      console.error("Error:", error);
-    } finally {
-      setLoading(false);
+  const handleGenerateQuiz = () => {
+    if (!summary || !title) {
+      toast.error("Please enter a title and generate a summary first");
+      return;
     }
+    sessionStorage.setItem(
+      "tempQuizArticle",
+      JSON.stringify({ title, content, summary })
+    );
+    router.push("/quiz/temp");
   };
 
   return (

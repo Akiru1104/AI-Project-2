@@ -3,8 +3,15 @@ import prisma from "@/lib/prisma";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
 export async function GET() {
+  const { userId: clerkId } = await auth();
+
+  if (!clerkId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const articles = await prisma.article.findMany({
+      where: { clerkId },
       include: {
         user: true,
         quizzes: true,

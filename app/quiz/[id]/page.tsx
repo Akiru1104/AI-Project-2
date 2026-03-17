@@ -65,13 +65,50 @@ export default function QuizPage() {
   const [previousScores, setPreviousScores] = useState<UserScore[]>([]);
   const [showPreviousScores, setShowPreviousScores] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
+  const [scoreSaved, setScoreSaved] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  const isTemp = params.id === "temp";
 
   // Fetch article and quiz data
   useEffect(() => {
     const fetchArticle = async () => {
       try {
         setLoading(true);
+
+        // Temp mode: load from sessionStorage, generate quiz without saving
+        if (isTemp) {
+          const raw = sessionStorage.getItem("tempQuizArticle");
+          if (!raw) throw new Error("No article data found");
+          const { title, content, summary } = JSON.parse(raw);
+
+          const quizResponse = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content }),
+          });
+
+          if (!quizResponse.ok) throw new Error("Failed to generate quiz");
+
+          const quizData = await quizResponse.json();
+          setArticle({
+            id: "temp",
+            title,
+            content,
+            summary,
+            quizzes: quizData.quizzes.map(
+              (q: Omit<Question, "id" | "articleId" | "createdAt" | "updatedAt">, i: number) => ({
+                ...q,
+                id: `temp-${i}`,
+                articleId: "temp",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              })
+            ),
+          });
+          return;
+        }
+
         const response = await fetch(`/api/articles/${params.id}`);
 
         if (!response.ok) {
@@ -131,10 +168,10 @@ export default function QuizPage() {
     fetchArticle();
   }, [params.id]);
 
-  // Fetch previous scores
+  // Fetch previous scores (skip for temp)
   useEffect(() => {
     const fetchPreviousScores = async () => {
-      if (!article) return;
+      if (!article || isTemp) return;
 
       try {
         const response = await fetch(`/api/scores?articleId=${article.id}`);
@@ -218,30 +255,41 @@ export default function QuizPage() {
     setIsSubmitting(true);
     try {
       const timeSpent = getTimeSpent();
-      const response = await fetch("/api/scores", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          articleId: article.id,
-          score: score,
-          timeSpent: timeSpent,
-        }),
-      });
+      let articleId = article.id;
 
-      if (!response.ok) {
-        throw new Error("Failed to save score");
+      // Temp mode: save article first, then score
+      if (isTemp) {
+        const articleRes = await fetch("/api/articles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: article.title,
+            content: article.content,
+            summary: article.summary,
+          }),
+        });
+        if (!articleRes.ok) throw new Error("Failed to save article");
+        const savedArticle = await articleRes.json();
+        articleId = savedArticle.id;
+        sessionStorage.removeItem("tempQuizArticle");
       }
 
-      // Fetch updated scores
-      const scoresResponse = await fetch(`/api/scores?articleId=${article.id}`);
+      const response = await fetch("/api/scores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articleId, score, timeSpent }),
+      });
+
+      if (!response.ok) throw new Error("Failed to save score");
+
+      const scoresResponse = await fetch(`/api/scores?articleId=${articleId}`);
       if (scoresResponse.ok) {
         const data = await scoresResponse.json();
         setPreviousScores(data);
       }
 
-      toast.success("Score saved successfully!");
+      toast.success(isTemp ? "Article and score saved!" : "Score saved successfully!");
+      setScoreSaved(true);
       setShowPreviousScores(true);
     } catch (error) {
       console.error("Error saving score:", error);
@@ -258,6 +306,7 @@ export default function QuizPage() {
     setScore(0);
     setShowResults(false);
     setShowPreviousScores(false);
+    setScoreSaved(false);
   };
 
   // Go back to home
@@ -444,12 +493,14 @@ export default function QuizPage() {
                         <RefreshCw className="mr-2 w-4 h-4" />
                         Restart Quiz
                       </Button>
-                      <Button
-                        onClick={handleSubmitScore}
-                        disabled={isSubmitting}
-                      >
-                        {isSubmitting ? "Saving..." : "Save Score"}
-                      </Button>
+                      {!scoreSaved && (
+                        <Button
+                          onClick={handleSubmitScore}
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? "Saving..." : "Save Score"}
+                        </Button>
+                      )}
                     </div>
                   </>
                 ) : (
